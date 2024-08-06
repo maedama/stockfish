@@ -176,6 +176,9 @@ class Stockfish:
     def _go(self) -> None:
         self._put(f"go depth {self.depth}")
 
+    def _go_nodes(self, nodes: int) -> None:
+        self._put(f"go nodes {nodes}")
+
     def _go_time(self, time: int) -> None:
         self._put(f"go movetime {time}")
 
@@ -514,7 +517,7 @@ class Stockfish:
             elif splitted_text[0] == "bestmove":
                 return evaluation
 
-    def get_top_moves(self, num_top_moves: int = 5) -> List[dict]:
+    def get_top_moves(self, num_top_moves: int = 5, num_nodes: int=0) -> List[dict]:
         """Returns info on the top moves in the position.
 
         Args:
@@ -534,7 +537,10 @@ class Stockfish:
         if num_top_moves != self._parameters["MultiPV"]:
             self._set_option("MultiPV", num_top_moves)
             self._parameters.update({"MultiPV": num_top_moves})
-        self._go()
+        if num_nodes > 0:
+            self._go_nodes(num_nodes)
+        else:
+            self._go()
         lines = []
         while True:
             text = self._read_line()
@@ -544,17 +550,31 @@ class Stockfish:
                 break
         top_moves: List[dict] = []
         multiplier = 1 if ("w" in self.get_fen_position()) else -1
+        seen_multipvs=set()
+
         for current_line in reversed(lines):
             if current_line[0] == "bestmove":
                 if current_line[1] == "(none)":
                     top_moves = []
                     break
-            elif (
-                ("multipv" in current_line)
-                and ("depth" in current_line)
-                and current_line[current_line.index("depth") + 1] == self.depth
-            ):
+            elif ("multipv" in current_line) and (
+                    (
+                        num_nodes==0 and
+                        ("depth" in current_line)
+#                        and current_line[current_line.index("depth") + 1] == self.depth
+                    ) or
+                    (
+                        num_nodes>0
+                        and ("nodes" in current_line)
+ #                       and int(current_line[current_line.index("nodes") + 1]) >= num_nodes
+                    )
+                ):
                 multiPV_number = int(current_line[current_line.index("multipv") + 1])
+                if multiPV_number in seen_multipvs:
+                    continue
+                else:
+                    seen_multipvs.add(multiPV_number)
+
                 if multiPV_number <= num_top_moves:
                     has_centipawn_value = "cp" in current_line
                     has_mate_value = "mate" in current_line
